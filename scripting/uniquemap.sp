@@ -39,7 +39,6 @@ public void OnPluginStart()
 	FormatEx(gS_ServerIP,32,"%s:%s",server_ip,server_port);
 
 	// DATABASE CONNECTIONS
-	Shavit_GetDB(gH_SQL);
 	SQL_SetPrefix();
 	SetSQLInfo();	
 }
@@ -62,34 +61,33 @@ public void OnMapStart()
 
 void UniqueMapProcedure()
 {
-	CreateTimer(0.5, CreateCurrentMapTable);
 	CreateTimer(1.0, GetDataFromCurrentMapTable);
 	CreateTimer(1.2, ReplaceMapInfo);
 	CreateTimer(5.0, ChangeMap);
 	CreateTimer(60.0, PrintChangedMapInfo);
 }
 
-public Action CreateCurrentMapTable(Handle timer)
-{
-	char[] sQuery = new char[256];
-	FormatEx(sQuery, 256, "CREATE TABLE IF NOT EXISTS `%scurrentmap` (`server_ip` VARCHAR(32), `current_map` VARCHAR(128), `last_time_changed` INT, PRIMARY KEY (`server_ip`));",gS_MySQLPrefix);
-
-	SQL_Query(gH_SQL, sQuery);
-	
-	return Plugin_Handled;
-}
 
 public Action GetDataFromCurrentMapTable(Handle timer)
 {
 	char[] sQuery = new char[256];
 	FormatEx(sQuery, 256, "SELECT * FROM %scurrentmap;", gS_MySQLPrefix);
 	
-	DBResultSet results = SQL_Query(gH_SQL, sQuery);
+	if (gH_SQL == null) 
+	{
+		LogError("gH_SQL to null!!!");
+	}
+	
+	gH_SQL.Query(SQL_GetDataFromCurrentMapTable_Callback, sQuery);
+	
+	return Plugin_Handled;
+}
 
+public void SQL_GetDataFromCurrentMapTable_Callback(Database db, DBResultSet results, const char[] error, any data)
+{
 	if(results == null)
 	{	
-		LogError("COS SIE SPIERDOLILO W GetDataFromCurrentMapTable")
-		return Plugin_Handled;
+		LogError("COS SIE SPIERDOLILO W GetDataFromCurrentMapTable");
 	}
 	
 	while(results.FetchRow())
@@ -114,10 +112,6 @@ public Action GetDataFromCurrentMapTable(Handle timer)
 			ForcedMapChange = true;
 		}
 	}
-	
-	delete results;
-	
-	return Plugin_Handled;
 }
 
 public Action ReplaceMapInfo(Handle timer)
@@ -146,9 +140,9 @@ public Action PrintChangedMapInfo(Handle timer)
 {
 	if(LastTimeForcedMapChange)
 	{
-		PrintToChatAll("===MAP CHANGED AUTOMATICALY, BECOUSE IT'S ALREADY PLAYED ON THE OTHER SERVER===");
-		PrintToChatAll("===MAP CHANGED AUTOMATICALY, BECOUSE IT'S ALREADY PLAYED ON THE OTHER SERVER===");
-		PrintToChatAll("===MAP CHANGED AUTOMATICALY, BECOUSE IT'S ALREADY PLAYED ON THE OTHER SERVER===");
+		PrintToChatAll("===MAP CHANGED AUTOMATICALY, BECAUSE IT'S ALREADY PLAYED ON THE OTHER SERVER===");
+		PrintToChatAll("===MAP CHANGED AUTOMATICALY, BECAUSE IT'S ALREADY PLAYED ON THE OTHER SERVER===");
+		PrintToChatAll("===MAP CHANGED AUTOMATICALY, BECAUSE IT'S ALREADY PLAYED ON THE OTHER SERVER===");
 		LastTimeForcedMapChange = false;
 	}
 	
@@ -159,9 +153,34 @@ public Action PrintChangedMapInfo(Handle timer)
 // DATABASE CONNECTIONS
 // --------------------
 
-public void Shavit_OnDatabaseLoaded(Database db)
+public void Shavit_OnDatabaseLoaded()
 {
-	gH_SQL = db;
+	gH_SQL = Shavit_GetDatabase();
+	SetSQLInfo();
+}
+
+public Action CheckForSQLInfo(Handle Timer)
+{
+	return SetSQLInfo();
+}
+
+Action SetSQLInfo()
+{
+	if(gH_SQL == null)
+	{
+		gH_SQL = Shavit_GetDatabase();
+
+		CreateTimer(0.5, CheckForSQLInfo);
+	}
+
+	else
+	{
+		SQL_DBConnect();
+
+		return Plugin_Stop;
+	}
+
+	return Plugin_Continue;
 }
 
 void SQL_SetPrefix()
@@ -189,35 +208,36 @@ void SQL_SetPrefix()
 	delete fFile;
 }
 
-Action SetSQLInfo()
-{
-	if(gH_SQL == null)
-	{
-		Shavit_GetDB(gH_SQL);
-
-		CreateTimer(0.5, CheckForSQLInfo);
-	}
-
-	else
-	{
-		SQL_DBConnect();
-
-		return Plugin_Stop;
-	}
-
-	return Plugin_Continue;
-}
-
 void SQL_DBConnect()
 {
 	if(gH_SQL != null)
 	{
 		char[] sDriver = new char[8];
 		gH_SQL.Driver.GetIdentifier(sDriver, 8);
+		bool gB_MySQL = StrEqual(sDriver, "mysql", false);
+		
+		char[] sQuery = new char[512];
+		
+		if(gB_MySQL)
+		{
+			FormatEx(sQuery, 512, "CREATE TABLE IF NOT EXISTS `%scurrentmap` (`server_ip` VARCHAR(32), `current_map` VARCHAR(128), `last_time_changed` INT, PRIMARY KEY (`server_ip`));",gS_MySQLPrefix);
+		}
+
+		else
+		{
+			FormatEx(sQuery, 512, "CREATE TABLE IF NOT EXISTS `%scurrentmap` (`server_ip` VARCHAR(32) PRIMARY KEY, `current_map` VARCHAR(128), `last_time_changed` INT);",gS_MySQLPrefix);
+		}
+
+		gH_SQL.Query(SQL_CreateTable_Callback, sQuery, 0, DBPrio_High);
 	}
 }
 
-public Action CheckForSQLInfo(Handle Timer)
+public void SQL_CreateTable_Callback(Database db, DBResultSet results, const char[] error, any data)
 {
-	return SetSQLInfo();
+	if(results == null)
+	{
+		LogError("Timer (uniquemap module) error! currenttimes table creation failed. Reason: %s", error);
+
+		return;
+	}
 }
